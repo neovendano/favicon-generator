@@ -5,9 +5,13 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 const SIZE = 256;
 
 interface FaviconCanvasProps {
+  mode: 'text' | 'file' | 'emoji';
   text: string;
   bgColor: string;
   fgColor: string;
+  file: File | null;
+  emoji: string;
+  onDataUrl?: (url: string) => void;
 }
 
 export interface FaviconCanvasHandle {
@@ -30,7 +34,7 @@ function drawText(
 }
 
 const FaviconCanvas = forwardRef<FaviconCanvasHandle, FaviconCanvasProps>(
-  ({ text, bgColor, fgColor }, ref) => {
+  ({ mode, text, bgColor, fgColor, file, emoji, onDataUrl }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const previewRef = useRef<HTMLImageElement>(null);
 
@@ -48,21 +52,54 @@ const FaviconCanvas = forwardRef<FaviconCanvasHandle, FaviconCanvasProps>(
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
       ctx.scale(dpr, dpr);
 
-      // Background
+      const flush = () => {
+        const url = canvas.toDataURL('image/png');
+        if (previewRef.current) previewRef.current.src = url;
+        onDataUrl?.(url);
+      };
+
+      if (mode === 'file' && file) {
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, SIZE, SIZE);
+        flush();
+
+        const url = URL.createObjectURL(file);
+        let active = true;
+        const img = new Image();
+
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          if (!active) return;
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, SIZE, SIZE);
+          const ratio = Math.min(SIZE / img.width, SIZE / img.height);
+          const w = img.width * ratio;
+          const h = img.height * ratio;
+          ctx.drawImage(img, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+          flush();
+        };
+        img.onerror = () => URL.revokeObjectURL(url);
+        img.src = url;
+
+        return () => { active = false; };
+      }
+
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, SIZE, SIZE);
 
-      // Text
-      drawText(ctx, SIZE, { text, fg: fgColor });
-
-      // Update preview
-      if (previewRef.current) {
-        previewRef.current.src = canvas.toDataURL('image/png');
+      if (mode === 'emoji') {
+        ctx.font = `${SIZE * 0.78}px 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(emoji || '', SIZE / 2, SIZE / 2);
+      } else {
+        drawText(ctx, SIZE, { text, fg: fgColor });
       }
-    }, [text, bgColor, fgColor]);
+
+      flush();
+    }, [text, bgColor, fgColor, mode, file, emoji, onDataUrl]);
 
     return (
       <>
